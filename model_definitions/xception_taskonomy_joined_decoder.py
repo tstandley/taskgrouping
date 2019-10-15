@@ -24,7 +24,7 @@ from torch.nn import init
 import torch
 from .ozan_rep_fun import ozan_rep_function,trevor_rep_function,OzanRepFunction,TrevorRepFunction
 
-__all__ = ['xception_taskonomy_new','xception_taskonomy_new_fifth','xception_taskonomy_new_quad','xception_taskonomy_new_half','xception_taskonomy_new_80','xception_taskonomy_ozan']
+__all__ = ['xception_taskonomy_joined_decoder','xception_taskonomy_joined_decoder_fifth','xception_taskonomy_joined_decoder_quad','xception_taskonomy_joined_decoder_half','xception_taskonomy_joined_decoder_80','xception_taskonomy_joined_decoder_ozan']
 
 # model_urls = {
 #     'xception_taskonomy':'file:///home/tstand/Dropbox/taskonomy/xception_taskonomy-a4b32ef7.pth.tar'
@@ -201,21 +201,21 @@ class Decoder(nn.Module):
 
             self.fc = nn.Linear(2048, num_classes)
         else:
-            self.upconv1 = nn.ConvTranspose2d(512,256,2,2)
-            self.bn_upconv1 = nn.BatchNorm2d(256)
-            self.conv_decode1 = nn.Conv2d(256, 256, 3,padding=1)
-            self.bn_decode1 = nn.BatchNorm2d(256)
-            self.upconv2 = nn.ConvTranspose2d(256,128,2,2)
-            self.bn_upconv2 = nn.BatchNorm2d(128)
-            self.conv_decode2 = nn.Conv2d(128, 128, 3,padding=1)
-            self.bn_decode2 = nn.BatchNorm2d(128)
-            self.upconv3 = nn.ConvTranspose2d(128,96,2,2)
-            self.bn_upconv3 = nn.BatchNorm2d(96)
-            self.conv_decode3 = nn.Conv2d(96, 96, 3,padding=1)
-            self.bn_decode3 = nn.BatchNorm2d(96)
-            self.upconv4 = nn.ConvTranspose2d(96,64,2,2)
-            self.bn_upconv4 = nn.BatchNorm2d(64)
-            self.conv_decode4 = nn.Conv2d(64, output_channels, 3,padding=1)
+            self.upconv1 = nn.ConvTranspose2d(512,128,2,2)
+            self.bn_upconv1 = nn.BatchNorm2d(128)
+            self.conv_decode1 = nn.Conv2d(128, 128, 3,padding=1)
+            self.bn_decode1 = nn.BatchNorm2d(128)
+            self.upconv2 = nn.ConvTranspose2d(128,64,2,2)
+            self.bn_upconv2 = nn.BatchNorm2d(64)
+            self.conv_decode2 = nn.Conv2d(64, 64, 3,padding=1)
+            self.bn_decode2 = nn.BatchNorm2d(64)
+            self.upconv3 = nn.ConvTranspose2d(64,48,2,2)
+            self.bn_upconv3 = nn.BatchNorm2d(48)
+            self.conv_decode3 = nn.Conv2d(48, 48, 3,padding=1)
+            self.bn_decode3 = nn.BatchNorm2d(48)
+            self.upconv4 = nn.ConvTranspose2d(48,32,2,2)
+            self.bn_upconv4 = nn.BatchNorm2d(32)
+            self.conv_decode4 = nn.Conv2d(32, output_channels, 3,padding=1)
 
 
 
@@ -308,27 +308,22 @@ class XceptionTaskonomy(nn.Module):
             
             self.final_conv = SeparableConv2d(pre_rep_size,512,3,1,1)
             self.final_conv_bn = nn.BatchNorm2d(512)
+            output_channels=0
+            self.channels_per_task = {'segment_semantic':18,
+                                      'depth_zbuffer':1,
+                                      'normal':3,
+                                      'edge_occlusion':1,
+                                      'reshading':3,
+                                      'keypoints2d':1,
+                                      'edge_texture':1,
+                                     }
             for task in tasks:
-                if task == 'segment_semantic':
-                    output_channels = 18
-                if task == 'depth_zbuffer':
-                    output_channels = 1
-                if task == 'normal':
-                    output_channels = 3
-                if task == 'edge_occlusion':
-                    output_channels = 1
-                if task == 'reshading':
-                    output_channels = 3
-                if task == 'keypoints2d':
-                    output_channels = 1
-                if task == 'edge_texture':
-                    output_channels = 1
-                decoder=Decoder(output_channels)
-                self.task_to_decoder[task]=decoder
+                output_channels+=self.channels_per_task[task]
+            self.decoder=Decoder(output_channels)
+            
         else:
-            self.task_to_decoder['classification']=Decoder(output_channels=0,num_classes=1000)
+            self.decoder=Decoder(output_channels=0,num_classes=1000)
 
-        self.decoders = nn.ModuleList(self.task_to_decoder.values())
         
         #------- init weights --------
         for m in self.modules():
@@ -346,28 +341,25 @@ class XceptionTaskonomy(nn.Module):
 
 
         if self.tasks is None:
-            return self.decoders[0](rep)
+            return self.decoder(rep)
         
         rep = self.final_conv(rep)
         rep = self.final_conv_bn(rep)
 
-        outputs={'rep':rep}
-        if self.ozan:
-            OzanRepFunction.n=len(self.decoders)
-            rep = ozan_rep_function(rep)
-            for i,(task,decoder) in enumerate(zip(self.task_to_decoder.keys(),self.decoders)):
-                outputs[task]=decoder(rep[i])
-        else:
-            TrevorRepFunction.n=len(self.decoders)
-            rep = trevor_rep_function(rep)
-            for i,(task,decoder) in enumerate(zip(self.task_to_decoder.keys(),self.decoders)):
-                outputs[task]=decoder(rep)
+        outputs = {}
+        raw_output=self.decoder(rep)
+
+        range_start = 0
+        #print(raw_output.shape)
+        for task in self.tasks:
+            outputs[task]=raw_output[:,range_start:range_start+self.channels_per_task[task],:,:]
+            range_start+=self.channels_per_task[task]
         
         return outputs
 
 
 
-def xception_taskonomy_new(**kwargs):
+def xception_taskonomy_joined_decoder(**kwargs):
     """
     Construct Xception.
     """
@@ -376,7 +368,7 @@ def xception_taskonomy_new(**kwargs):
 
     return model
 
-def xception_taskonomy_new_fifth(**kwargs):
+def xception_taskonomy_joined_decoder_fifth(**kwargs):
     """
     Construct Xception.
     """
@@ -385,7 +377,7 @@ def xception_taskonomy_new_fifth(**kwargs):
 
     return model
 
-def xception_taskonomy_new_quad(**kwargs):
+def xception_taskonomy_joined_decoder_quad(**kwargs):
     """
     Construct Xception.
     """
@@ -394,7 +386,7 @@ def xception_taskonomy_new_quad(**kwargs):
 
     return model
 
-def xception_taskonomy_new_half(**kwargs):
+def xception_taskonomy_joined_decoder_half(**kwargs):
     """
     Construct Xception.
     """
@@ -403,7 +395,7 @@ def xception_taskonomy_new_half(**kwargs):
 
     return model
 
-def xception_taskonomy_new_80(**kwargs):
+def xception_taskonomy_joined_decoder_80(**kwargs):
     """
     Construct Xception.
     """
@@ -412,7 +404,7 @@ def xception_taskonomy_new_80(**kwargs):
 
     return model
 
-def xception_taskonomy_ozan(**kwargs):
+def xception_taskonomy_joined_decoder_ozan(**kwargs):
     """
     Construct Xception.
     """
