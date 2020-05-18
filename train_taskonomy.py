@@ -15,8 +15,8 @@ from taskonomy_losses import *
 from taskonomy_loader import TaskonomyLoader
 
 
-from apex.parallel import DistributedDataParallel as DDP
-from apex.fp16_utils import *
+# from apex.parallel import DistributedDataParallel as DDP
+# from apex.fp16_utils import *
 
 import copy
 import numpy as np
@@ -85,8 +85,8 @@ parser.add_argument('--pretrained', dest='pretrained', default='',
                     help='use pre-trained model')
 parser.add_argument('-vb', '--virtual-batch-multiplier', default=1, type=int,
                     metavar='N', help='number of forward/backward passes per parameter update')
-parser.add_argument('--fp16', action='store_true',
-                    help='Run model fp16 mode.')
+# parser.add_argument('--fp16', action='store_true',
+#                     help='Run model fp16 mode.')
 parser.add_argument('-ml', '--model-limit', default=None, type=int,
                     help='Limit the number of training instances from a single 3d building model.')
 
@@ -101,9 +101,9 @@ def main(args):
     
     main_stream = torch.cuda.Stream()
 
-    if args.fp16:
-        assert torch.backends.cudnn.enabled, "fp16 mode requires cudnn backend to be enabled."
-        print('Got fp16!')
+    # if args.fp16:
+    #     assert torch.backends.cudnn.enabled, "fp16 mode requires cudnn backend to be enabled."
+    #     print('Got fp16!')
     
     taskonomy_loss, losses, criteria, taskonomy_tasks = get_losses_and_tasks(args)
 
@@ -165,9 +165,9 @@ def main(args):
 
 
     #o_model = model
-    if args.fp16:
-        print('making network fp16')
-        model = network_to_half(model)
+    # if args.fp16:
+    #     print('making network fp16')
+    #     model = network_to_half(model)
 
 
     if args.pretrained != '':
@@ -185,11 +185,11 @@ def main(args):
     #tested with adamW. Poor results observed
     #optimizer = adamW.AdamW(model.parameters(),lr= args.lr,weight_decay=args.weight_decay,eps=1e-3)
     
-    if args.fp16:
-        sys.stdout = open(os.devnull, "w") # capture junky output
-        optimizer = FP16_Optimizer(optimizer,
-                                   dynamic_loss_scale=True)
-        sys.stdout = sys.__stdout__ # stop capturing junky output
+    # if args.fp16:
+    #     sys.stdout = open(os.devnull, "w") # capture junky output
+    #     optimizer = FP16_Optimizer(optimizer,
+    #                                dynamic_loss_scale=True)
+    #     sys.stdout = sys.__stdout__ # stop capturing junky output
 
     
     if args.resume:
@@ -362,7 +362,7 @@ class Trainer:
         self.optimizer=optimizer
         self.criteria=criteria
         self.args = args
-        self.fp16=args.fp16
+        # self.fp16=args.fp16
         self.code_archive=self.get_code_archive()
         if checkpoint:
             self.progress_table = checkpoint['progress_table']
@@ -419,10 +419,10 @@ class Trainer:
             to_save = self.model
             if torch.cuda.device_count() >1:
                 to_save=to_save.module
-            if self.args.fp16:
-                to_save=to_save[1]
-                to_save = to_save.float()
-                #copy_in_params(model,param_copy)
+            # if self.args.fp16:
+            #     to_save=to_save[1]
+            #     to_save = to_save.float()
+            #     #copy_in_params(model,param_copy)
             gpus='all'
             if 'CUDA_VISIBLE_DEVICES' in os.environ:
                 gpus=os.environ['CUDA_VISIBLE_DEVICES']
@@ -442,8 +442,8 @@ class Trainer:
 
             if is_best:
                 self.save_checkpoint(None, True,self.args.model_dir, save_filename)
-            if self.args.fp16:
-                to_save = network_to_half(to_save)
+            # if self.args.fp16:
+            #     to_save = network_to_half(to_save)
         except:
             print('save checkpoint failed...')              
 
@@ -601,8 +601,8 @@ class Trainer:
 
         loss_dict = {}
         
-        if self.args.fp16:
-            input = input.half()
+        # if self.args.fp16:
+        #     input = input.half()
         output = self.model(input)
         first_loss=None
         for c_name,criterion_fun in self.criteria.items():
@@ -612,10 +612,11 @@ class Trainer:
         loss = loss_dict[first_loss].clone()
         loss = loss / self.args.virtual_batch_multiplier
             
-        if self.args.fp16:
-            self.optimizer.backward(loss)
-        else:
-            loss.backward()
+        # if self.args.fp16:
+        #     self.optimizer.backward(loss)
+        # else:
+        #     loss.backward()
+        loss.backward() # Temporary due to fp16
 
         return loss_dict,loss
 
@@ -625,8 +626,8 @@ class Trainer:
         sys.stdout = open(os.devnull, "w")
         self.optimizer.step()
         sys.stdout = sys.__stdout__
-        if self.args.fp16:
-            torch.cuda.synchronize()
+        # if self.args.fp16:
+        #     torch.cuda.synchronize()
         sys.stdout = open(os.devnull, "w")
         self.optimizer.zero_grad()
         sys.stdout = sys.__stdout__
