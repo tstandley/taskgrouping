@@ -1,3 +1,6 @@
+import warnings
+warnings.simplefilter("error")
+
 import argparse
 import os
 import shutil
@@ -444,7 +447,8 @@ class Trainer:
                 self.save_checkpoint(None, True,self.args.model_dir, save_filename)
             # if self.args.fp16:
             #     to_save = network_to_half(to_save)
-        except:
+        except Exception as e:
+            print(e)
             print('save checkpoint failed...')              
 
 
@@ -456,6 +460,7 @@ class Trainer:
             best_path = os.path.join(directory,'best_'+filename)
             shutil.copyfile(path, best_path)
         else:
+            # print("saving checkpoint to: {}".format(path))
             torch.save(state, path)
 
     def learning_rate_schedule(self):
@@ -623,12 +628,12 @@ class Trainer:
     
     def update(self):
 
-        sys.stdout = open(os.devnull, "w")
+        # sys.stdout = open(os.devnull, "w")
         self.optimizer.step()
         sys.stdout = sys.__stdout__
         # if self.args.fp16:
         #     torch.cuda.synchronize()
-        sys.stdout = open(os.devnull, "w")
+        # sys.stdout = open(os.devnull, "w")
         self.optimizer.zero_grad()
         sys.stdout = sys.__stdout__
  
