@@ -33,6 +33,8 @@ import scipy.stats
 
 import model_definitions as models
 
+torch.cuda.empty_cache()
+
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
@@ -218,7 +220,11 @@ def main(args):
         trainer.val_loader=get_eval_loader(args.data_dir, taskonomy_tasks, args,model_limit=(1000,2000))
         trainer.validate([{}])
         return
-    
+
+    print("="*80)
+    print("MEMORY RESERVED: {}".format(torch.cuda.memory_reserved())) 
+    print("="*80)
+
     trainer.train()
    
 
@@ -566,7 +572,7 @@ class Trainer:
             
             batch_num+=1
             current_learning_rate= get_average_learning_rate(self.optimizer)
-            if True:
+            if num_data_points-1 == batch_num:
 
                 to_print = {}
                 to_print['ep']= ('{0}:').format(self.epoch)
@@ -672,14 +678,15 @@ class Trainer:
                         average_meters[name].update(value)
                 eta = ((time.time()-epoch_start_time2)/(batch_num+.2))*(len(self.val_loader)-batch_num)
 
-                to_print = {}
-                to_print['#/{0}'.format(num_data_points)]= ('{0}').format(batch_num)
-                to_print['eta']= ('{0}').format(time.strftime("%H:%M:%S", time.gmtime(int(eta))))
-                for name in self.criteria.keys():
-                    meter = average_meters[name]
-                    to_print[name]= ('{meter.avg:.4g}').format(meter=meter)
-                progress=train_table+[to_print]
-                print_table(self.progress_table+[progress])
+                if i == len(self.val_loader) -1:
+                    to_print = {}
+                    to_print['#/{0}'.format(num_data_points)]= ('{0}').format(batch_num)
+                    to_print['eta']= ('{0}').format(time.strftime("%H:%M:%S", time.gmtime(int(eta))))
+                    for name in self.criteria.keys():
+                        meter = average_meters[name]
+                        to_print[name]= ('{meter.avg:.4g}').format(meter=meter)
+                    progress=train_table+[to_print]
+                    print_table(self.progress_table+[progress])
 
         epoch_time = time.time()-epoch_start_time
 
