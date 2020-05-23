@@ -5,20 +5,23 @@ import torch.utils.model_zoo as model_zoo
 from torch.nn import init
 import torch
 
+from .ozan_rep_fun import ozan_rep_function,trevor_rep_function,OzanRepFunction,TrevorRepFunction
+
 __all__ = ['bugnet_taskonomy']
 
+hidden_dim = 3
 
 class BugEncoder(nn.Module):
     # Input images are of size 256x256 and output should be 512
     def __init__(self):
         super(BugEncoder, self).__init__()
         self.conv1 = nn.Conv2d(in_channels=3,
-                               out_channels=512,
+                               out_channels=hidden_dim,
                                kernel_size= 3,
                                stride = 1,
                                padding = 1,
                                bias=True)
-        self.bn1 = nn.BatchNorm2d(512)
+        self.bn1 = nn.BatchNorm2d(hidden_dim)
 
     def forward(self,x):
         x = self.conv1(x)
@@ -30,7 +33,7 @@ class BugEncoder(nn.Module):
 class BugDecoder(nn.Module):
     def __init__(self, out_channels):
         super(BugDecoder, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=512,
+        self.conv1 = nn.Conv2d(in_channels=hidden_dim,
                                out_channels=out_channels,
                                kernel_size= 3,
                                stride = 1,
@@ -77,8 +80,11 @@ class BugNet(nn.Module):
         rep = self.encoder(input)
         outputs={'rep':rep}
 
-        for i,(task,decoder) in enumerate(zip(self.task_to_decoder.keys(), self.decoders)):
-            outputs[task]=decoder(rep[i])
+        # rep = ozan_rep_function(rep)
+        rep = trevor_rep_function(rep)
+
+        for i, (task,decoder) in enumerate(zip(self.task_to_decoder.keys(), self.decoders)):
+            outputs[task]=decoder(rep)
         
         return outputs
 
