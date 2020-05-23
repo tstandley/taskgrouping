@@ -10,7 +10,7 @@ from .ozan_rep_fun import ozan_rep_function,trevor_rep_function,OzanRepFunction,
 
 
 __all__ = ['resnet18_taskonomy','resnet18_taskonomy_half','resnet18_taskonomy_tripple', 'resnet34_taskonomy', 'resnet50_taskonomy', 'resnet101_taskonomy',
-           'resnet152_taskonomy']
+           'resnet152_taskonomy', 'tinynet_taskonomy']
 
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
@@ -448,3 +448,196 @@ def resnet152_taskonomy(pretrained=False, **kwargs):
     """
     return _resnet('resnet152', Bottleneck, [3, 8, 36, 3], pretrained,
                    **kwargs)
+
+def tinynet_taskonomy(pretrained=False, **kwargs):
+    """Constructs a ResNet-152 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    return _tinynet('tinynet', Bottleneck, [3, 8, 36, 3], pretrained,
+                   **kwargs)
+
+
+def _tinynet(arch, block, layers, pretrained, **kwargs):
+    model = TinyNet(block=block, layers=layers, **kwargs)
+    # if pretrained:
+    #     state_dict = load_state_dict_from_url(model_urls[arch],
+    #                                           progress=progress)
+    #     model.load_state_dict(state_dict)
+    return model
+
+
+def TinyEncoder():
+    # Input images are of size 256x256 and output should be 512
+    encoder = nn.Sequential(
+        nn.Conv2d(3, 512, 3, 1, 1),
+        nn.BatchNorm2d(512),
+        nn.ReLU()
+    )
+
+    return encoder
+
+
+class TinyDecoder(nn.Module):
+    def __init__(self, output_channels=32,num_classes=None,base_match=512):
+        super(TinyDecoder, self).__init__()
+        
+        self.output_channels = output_channels
+        self.num_classes = num_classes
+
+        self.relu = nn.ReLU(inplace=True)
+        if num_classes is not None:
+            self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+            self.fc = nn.Linear(512 * block.expansion, num_classes)
+        else:
+            self.upconv0 = nn.ConvTranspose2d(base_match,256,2,2)
+            self.bn_upconv0 = nn.BatchNorm2d(256)
+            self.conv_decode0 = nn.Conv2d(256, 256, 3, padding=1)
+            self.bn_decode0 = nn.BatchNorm2d(256)
+            self.upconv1 = nn.ConvTranspose2d(256,128,2,2)
+            self.bn_upconv1 = nn.BatchNorm2d(128)
+            self.conv_decode1 = nn.Conv2d(128, output_channels, 3, padding=1)
+            """
+            self.conv_decode1 = nn.Conv2d(128, 128, 3,padding=1)
+            self.bn_decode1 = nn.BatchNorm2d(128)
+            self.upconv2 = nn.ConvTranspose2d(128,64,2,2)
+            self.bn_upconv2 = nn.BatchNorm2d(64)
+            self.conv_decode2 = nn.Conv2d(64, 64, 3,padding=1)
+            self.bn_decode2 = nn.BatchNorm2d(64)
+            self.upconv3 = nn.ConvTranspose2d(64,48,2,2)
+            self.bn_upconv3 = nn.BatchNorm2d(48)
+            self.conv_decode3 = nn.Conv2d(48, 48, 3,padding=1)
+            self.bn_decode3 = nn.BatchNorm2d(48)
+            self.upconv4 = nn.ConvTranspose2d(48,32,2,2)
+            self.bn_upconv4 = nn.BatchNorm2d(32)
+            self.conv_decode4 = nn.Conv2d(32, output_channels, 3,padding=1)
+            """
+
+
+    def forward(self,representation):
+        #batch_size=representation.shape[0]
+        if self.num_classes is None:
+            #x2 = self.conv_decode_res(representation)
+            #x2 = self.bn_conv_decode_res(x2)
+            #x2 = interpolate(x2,size=(256,256))
+
+            x = self.upconv0(representation)
+            x = self.bn_upconv0(x)
+            x = self.relu(x)
+            x = self.conv_decode0(x)
+            x = self.bn_decode0(x)
+            x = self.relu(x)
+
+            x = self.upconv1(x)
+            x = self.bn_upconv1(x)
+            x = self.relu(x)
+            x = self.conv_decode1(x)
+            
+            """
+            x = self.bn_decode1(x)
+            x = self.relu(x)
+            x = self.upconv2(x)
+            x = self.bn_upconv2(x)
+            x = self.relu(x)
+            x = self.conv_decode2(x)
+            
+            x = self.bn_decode2(x)
+            x = self.relu(x)
+            x = self.upconv3(x)
+            x = self.bn_upconv3(x)
+            x = self.relu(x)
+            x = self.conv_decode3(x)
+            x = self.bn_decode3(x)
+            x = self.relu(x)
+            x = self.upconv4(x)
+            x = self.bn_upconv4(x)
+            #x = torch.cat([x,x2],1)
+            #print(x.shape,self.static.shape)
+            #x = torch.cat([x,x2,input,self.static.expand(batch_size,-1,-1,-1)],1)
+            x = self.relu(x)
+            x = self.conv_decode4(x)
+            """
+
+            #z = x[:,19:22,:,:].clone()
+            #y = (z).norm(2,1,True).clamp(min=1e-12)
+            #print(y.shape,x[:,21:24,:,:].shape)
+            #x[:,19:22,:,:]=z/y
+
+        else:
+
+            x = F.adaptive_avg_pool2d(x, (1, 1))
+            x = x.view(x.size(0), -1)
+            x = self.fc(x)
+        
+        return x
+
+
+class TinyNet(nn.Module):
+    def __init__(self,block,layers,tasks=None,num_classes=None, ozan=False,size=1,**kwargs):
+        super(TinyNet, self).__init__()
+
+        self.encoder = TinyEncoder()
+        self.tasks=tasks
+        self.ozan=ozan
+        self.task_to_decoder = {}
+
+        if tasks is not None:
+            #self.final_conv = nn.Conv2d(728,512,3,1,1)
+            #self.final_conv_bn = nn.BatchNorm2d(512)
+            for task in tasks:
+                if task == 'segment_semantic':
+                    output_channels = 18
+                if task == 'depth_zbuffer':
+                    output_channels = 1
+                if task == 'normal':
+                    output_channels = 3
+                if task == 'edge_occlusion':
+                    output_channels = 1
+                if task == 'reshading':
+                    output_channels = 3
+                if task == 'keypoints2d':
+                    output_channels = 1
+                if task == 'edge_texture':
+                    output_channels = 1
+
+                decoder = TinyDecoder(output_channels)
+                self.task_to_decoder[task]=decoder
+        else:
+            self.task_to_decoder['classification']=Decoder(output_channels=0,num_classes=1000)
+
+        self.decoders = nn.ModuleList(self.task_to_decoder.values())
+        
+        #------- init weights --------
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+        #-----------------------------
+    def forward(self, input):
+        rep = self.encoder(input)
+
+
+        if self.tasks is None:
+            return self.decoders[0](rep)
+        
+        #rep = self.final_conv(rep)
+        #rep = self.final_conv_bn(rep)
+
+        outputs={'rep':rep}
+        if self.ozan:
+            OzanRepFunction.n=len(self.decoders)
+            rep = ozan_rep_function(rep)
+            for i,(task,decoder) in enumerate(zip(self.task_to_decoder.keys(),self.decoders)):
+                outputs[task]=decoder(rep[i])
+        else:
+            TrevorRepFunction.n=len(self.decoders)
+            rep = trevor_rep_function(rep)
+            for i,(task,decoder) in enumerate(zip(self.task_to_decoder.keys(),self.decoders)):
+                outputs[task]=decoder(rep)
+        
+        return outputs
