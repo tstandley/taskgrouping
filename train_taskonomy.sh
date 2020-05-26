@@ -3,7 +3,8 @@
 # Change settings here
 data_dir="../taskonomy-small/"
 # data_dir="../taskonomy-sample-model-1/"
-model_name="xception_taskonomy_new"
+# model_name="xception_taskonomy_new"
+model_name="bugnet_taskonomy"
 tasks_to_train_on="dnkt"
 model_dir="test_run/"
 number_of_workers="1"
