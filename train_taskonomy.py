@@ -94,6 +94,8 @@ parser.add_argument('-vb', '--virtual-batch-multiplier', default=1, type=int,
 #                     help='Run model fp16 mode.')
 parser.add_argument('-ml', '--model-limit', default=None, type=int,
                     help='Limit the number of training instances from a single 3d building model.')
+parser.add_argument('-par', '--partition', dest='partition', action='store_true',
+                    help='N (partition = false) vs C*N (partition = True) where C is number of tasks.')
 
 
 cudnn.benchmark = False
@@ -126,7 +128,8 @@ def main(args):
         model_whitelist='train_models.txt',
         model_limit=args.model_limit,
         output_size = (args.image_size,args.image_size),
-        augment=True)
+        augment=True, 
+        partition=args.partition)
 
     print('Found',len(train_dataset),'training instances.')
 
@@ -228,7 +231,7 @@ def main(args):
     trainer.train()
    
 
-def get_eval_loader(datadir, label_set, args,model_limit=1000):
+def get_eval_loader(datadir, label_set, args, model_limit=1000):
     print(datadir)
 
     val_dataset = TaskonomyLoader(datadir,
@@ -236,7 +239,8 @@ def get_eval_loader(datadir, label_set, args,model_limit=1000):
                                   model_whitelist='val_models.txt',
                                   model_limit=model_limit,
                                   output_size = (args.image_size,args.image_size),
-                                  augment=False)
+                                  augment=False,
+                                  partition=args.partition)
     print('Found',len(val_dataset),'validation instances.')
     
     val_loader = torch.utils.data.DataLoader(
