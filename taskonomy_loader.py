@@ -63,8 +63,8 @@ class TaskonomyLoader(data.Dataset):
             def chunks(lst):
                 n = len(self.label_set)
                 """Yield successive n-sized chunks from lst. Source: https://stackoverflow.com/a/312464"""
-                for i in range(0, len(lst), n):
-                    yield lst[i:i + n]
+                for i in range(n, len(lst), n):
+                    yield lst[i-n : i]
             self.records = list( chunks( self.records ) )
             
             def convert_list_to_dict(record):
