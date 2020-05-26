@@ -1,5 +1,6 @@
 import warnings
 warnings.simplefilter("error")
+import enum
 
 import argparse
 import os
@@ -98,13 +99,24 @@ parser.add_argument('-ml', '--model-limit', default=None, type=int,
 
 cudnn.benchmark = False
 
+
+class Device(enum.Enum):
+    CPU = torch.device("cpu")
+    CUDA = torch.device("cuda:0")
+    PARALLEL_CUDA = None  # TODO: Blocking parallelism for now...
+
+default_device = Device.CPU if not torch.cuda.is_available() else Device.CUDA
+
+if 'CUDA_VISIBLE_DEVICES' in os.environ:
+        print('cuda gpus:',os.environ['CUDA_VISIBLE_DEVICES'])
+
+
 def main(args):
     print(args)
     print('starting on', platform.node())
-    if 'CUDA_VISIBLE_DEVICES' in os.environ:
-        print('cuda gpus:',os.environ['CUDA_VISIBLE_DEVICES'])
     
-    main_stream = torch.cuda.Stream()
+    if default_device != Device.CPU:
+        main_stream = torch.cuda.Stream()
 
     # if args.fp16:
     #     assert torch.backends.cudnn.enabled, "fp16 mode requires cudnn backend to be enabled."
@@ -154,14 +166,14 @@ def main(args):
     for decoder in model.task_to_decoder.values():
         print("Decoder has", get_n_params(decoder), "parameters")
 
-    model = model.cuda()
+    model = model.to(device=default_device.value)
 
     # optionally resume from a checkpoint
     checkpoint=None
     if args.resume:
         if os.path.isfile(args.resume):
             print("=> loading checkpoint '{}'".format(args.resume))
-            checkpoint = torch.load(args.resume, map_location = lambda storage, loc: storage.cuda())
+            checkpoint = torch.load(args.resume, map_location = lambda storage, loc: storage.to(device=default_device.value))
             model.load_state_dict(checkpoint['state_dict'])
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
@@ -180,8 +192,8 @@ def main(args):
         model[1].encoder.load_state_dict(torch.load(args.pretrained))
     
 
-    if torch.cuda.device_count() >1:
-        model = torch.nn.DataParallel(model).cuda()
+    # if torch.cuda.device_count() >1:
+    #     model = torch.nn.DataParallel(model).cuda()
 
     print('Virtual batch size =', args.batch_size*args.virtual_batch_multiplier)
 
@@ -220,10 +232,6 @@ def main(args):
         trainer.val_loader=get_eval_loader(args.data_dir, taskonomy_tasks, args,model_limit=(1000,2000))
         trainer.validate([{}])
         return
-
-    print("="*80)
-    print("MEMORY RESERVED: {}".format(torch.cuda.memory_reserved())) 
-    print("="*80)
 
     trainer.train()
    
@@ -265,7 +273,7 @@ class data_prefetcher():
     def __init__(self, loader):
         self.inital_loader = loader
         self.loader = iter(loader)
-        self.stream = torch.cuda.Stream()
+        self.stream = torch.cuda.Stream() if default_device != Device.CPU else None
         self.preload()
 
     def preload(self):
@@ -277,13 +285,16 @@ class data_prefetcher():
             self.loader = iter(self.inital_loader)
             self.preload()
             return
-        with torch.cuda.stream(self.stream):
-            self.next_input = self.next_input.cuda(non_blocking=True)
-            #self.next_target = self.next_target.cuda(async=True)
-            self.next_target = {key: val.cuda(non_blocking=True) for (key,val) in self.next_target.items()}
+        
+        if self.stream is not None:
+            with torch.cuda.stream(self.stream):
+                self.next_input = self.next_input.cuda(non_blocking=True)
+                #self.next_target = self.next_target.cuda(async=True)
+                self.next_target = {key: val.cuda(non_blocking=True) for (key,val) in self.next_target.items()}
 
     def next(self):
-        torch.cuda.current_stream().wait_stream(self.stream)
+        if self.stream is not None:
+            torch.cuda.current_stream().wait_stream(self.stream)
         input = self.next_input
         target = self.next_target
         self.preload()
@@ -652,7 +663,8 @@ class Trainer:
         num_data_points=len(self.val_loader)
 
         prefetcher = data_prefetcher(self.val_loader)
-        torch.cuda.empty_cache()
+        if default_device != Device.CPU:
+            torch.cuda.empty_cache()
         with torch.no_grad():
             for i in range(len(self.val_loader)):
                 input, target = prefetcher.next()
@@ -699,7 +711,8 @@ class Trainer:
             stats[name]=meter.avg
         ultimate_loss = stats['Loss']
         to_print['eta']= ('{0}').format(time.strftime("%H:%M:%S", time.gmtime(int(epoch_time))))
-        torch.cuda.empty_cache()
+        if default_device != Device.CPU:
+            torch.cuda.empty_cache()
         return float(ultimate_loss), progress , stats
 
     def adjust_learning_rate(self):
