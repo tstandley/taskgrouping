@@ -282,7 +282,7 @@ class data_prefetcher():
             self.preload()
             return
         with torch.cuda.stream(self.stream):
-            self.next_input = self.next_input.cuda(non_blocking=True)
+            self.next_input = {key: val.cuda(non_blocking=True) for (key,val) in self.next_input.items()} 
             #self.next_target = self.next_target.cuda(async=True)
             self.next_target = {key: val.cuda(non_blocking=True) for (key,val) in self.next_target.items()}
 
