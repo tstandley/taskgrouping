@@ -30,6 +30,8 @@ class TaskonomyLoader(data.Dataset):
                  augment=False,
                  partition=False
                  ):
+        self.partition = partition
+        self.label_set = label_set
         self.root = root
         self.model_limit=model_limit
         self.records=[]
@@ -58,7 +60,7 @@ class TaskonomyLoader(data.Dataset):
 
 
         if not self.partition:
-            self.records = list( map( lambda record: {task: record for task in self.label_set} ) )
+            self.records = list( map( lambda record: {task: record for task in self.label_set}, self.records) )
         else:
             def chunks(lst):
                 n = len(self.label_set)
@@ -76,7 +78,6 @@ class TaskonomyLoader(data.Dataset):
             self.records = list( map( convert_list_to_dict, self.records ) )
             
 
-        self.label_set = label_set
         self.output_size = output_size
         self.convert_to_tensor = convert_to_tensor
         self.return_filename=return_filename
