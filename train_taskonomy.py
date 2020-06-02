@@ -240,7 +240,7 @@ def get_eval_loader(datadir, label_set, args, model_limit=1000):
                                   model_limit=model_limit,
                                   output_size = (args.image_size,args.image_size),
                                   augment=False,
-                                  partition=args.partition)
+                                  partition=False) # regardless of n or 5n for training, val is always n.
     print('Found',len(val_dataset),'validation instances.')
     
     val_loader = torch.utils.data.DataLoader(
