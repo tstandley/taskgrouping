@@ -27,7 +27,11 @@ class TaskonomyLoader(data.Dataset):
                  output_size=None,
                  convert_to_tensor=True,
                  return_filename=False, 
-                 augment=False):
+                 augment=False,
+                 partition=False
+                 ):
+        self.partition = partition
+        self.label_set = label_set
         self.root = root
         self.model_limit=model_limit
         self.records=[]
@@ -51,8 +55,29 @@ class TaskonomyLoader(data.Dataset):
                     full_paths.sort()
                     full_paths = full_paths[:model_limit]
                 self.records+=full_paths
+
         
-        self.label_set = label_set
+
+
+        if not self.partition:
+            self.records = list( map( lambda record: {task: record for task in self.label_set}, self.records) )
+        else:
+            def chunks(lst):
+                n = len(self.label_set)
+                """Yield successive n-sized chunks from lst. Source: https://stackoverflow.com/a/312464"""
+                for i in range(n, len(lst), n):
+                    yield lst[i-n : i]
+            self.records = list( chunks( self.records ) )
+            
+            def convert_list_to_dict(record):
+                result = {}
+                for i in range( len( self.label_set ) ):
+                    task = self.label_set[i]
+                    result[task] = record[i]
+                return result
+            self.records = list( map( convert_list_to_dict, self.records ) )
+            
+
         self.output_size = output_size
         self.convert_to_tensor = convert_to_tensor
         self.return_filename=return_filename
@@ -86,26 +111,26 @@ class TaskonomyLoader(data.Dataset):
         If there is an error loading an image or its labels, simply return the previous example.
         """
         
-        file_name=self.records[index]
-        save_filename = file_name
-        
-        flip = (random.randint(0,1) > .5 and self.augment)
-
-        
-        
-        
-        pil_im = Image.open(file_name)
-        
-        if flip:
-            pil_im = pil_im.transpose(Image.FLIP_LEFT_RIGHT)
-        
-        im = self.process_image(pil_im)
-        
-        error=False
-
+        ims = {}
         ys = {}
         mask = None
+
         for i in self.label_set:
+
+            file_name=self.records[index][i]
+            save_filename = file_name
+        
+            flip = (random.randint(0,1) > .5 and self.augment)
+        
+            pil_im = Image.open(file_name)
+        
+            if flip:
+                pil_im = pil_im.transpose(Image.FLIP_LEFT_RIGHT)
+        
+            im = self.process_image(pil_im)
+        
+            error=False
+
             yfilename = file_name.replace('rgb',i)
             try:
                 yim = Image.open(yfilename)
@@ -156,13 +181,12 @@ class TaskonomyLoader(data.Dataset):
                     pass
                 
             ys[i] = yim
+            ims[i] = im
             
         if mask is not None:
             ys['mask']=mask
         
-        ys['rgb']=im
-        
-        return im, ys
+        return ims, ys
 
 
     def __len__(self):
