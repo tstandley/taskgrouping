@@ -95,6 +95,8 @@ parser.add_argument('-vb', '--virtual-batch-multiplier', default=1, type=int,
 #                     help='Run model fp16 mode.')
 parser.add_argument('-ml', '--model-limit', default=None, type=int,
                     help='Limit the number of training instances from a single 3d building model.')
+parser.add_argument('-par', '--partition', dest='partition', action='store_true',
+                    help='N (partition = false) vs C*N (partition = True) where C is number of tasks.')
 
 
 cudnn.benchmark = False
@@ -138,7 +140,8 @@ def main(args):
         model_whitelist='train_models.txt',
         model_limit=args.model_limit,
         output_size = (args.image_size,args.image_size),
-        augment=True)
+        augment=True, 
+        partition=args.partition)
 
     print('Found',len(train_dataset),'training instances.')
 
@@ -236,7 +239,7 @@ def main(args):
     trainer.train()
    
 
-def get_eval_loader(datadir, label_set, args,model_limit=1000):
+def get_eval_loader(datadir, label_set, args, model_limit=1000):
     print(datadir)
 
     val_dataset = TaskonomyLoader(datadir,
@@ -244,7 +247,8 @@ def get_eval_loader(datadir, label_set, args,model_limit=1000):
                                   model_whitelist='val_models.txt',
                                   model_limit=model_limit,
                                   output_size = (args.image_size,args.image_size),
-                                  augment=False)
+                                  augment=False,
+                                  partition=False) # regardless of n or 5n for training, val is always n.
     print('Found',len(val_dataset),'validation instances.')
     
     val_loader = torch.utils.data.DataLoader(
@@ -285,12 +289,12 @@ class data_prefetcher():
             self.loader = iter(self.inital_loader)
             self.preload()
             return
-        
+
         if self.stream is not None:
-            with torch.cuda.stream(self.stream):
-                self.next_input = self.next_input.cuda(non_blocking=True)
-                #self.next_target = self.next_target.cuda(async=True)
-                self.next_target = {key: val.cuda(non_blocking=True) for (key,val) in self.next_target.items()}
+          with torch.cuda.stream(self.stream):
+              self.next_input = {key: val.cuda(non_blocking=True) for (key,val) in self.next_input.items()} 
+              #self.next_target = self.next_target.cuda(async=True)
+              self.next_target = {key: val.cuda(non_blocking=True) for (key,val) in self.next_target.items()}
 
     def next(self):
         if self.stream is not None:

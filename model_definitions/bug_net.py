@@ -77,14 +77,15 @@ class BugNet(nn.Module):
         self.decoders = nn.ModuleList(self.task_to_decoder.values())
 
     def forward(self, input):
-        rep = self.encoder(input)
-        outputs={'rep':rep}
+
+        rep = {task: self.encoder(im) for task, im in input.items()}
+        outputs={}
 
         # rep = ozan_rep_function(rep)
-        rep = trevor_rep_function(rep)
+        # rep = trevor_rep_function(rep)
 
-        for i, (task,decoder) in enumerate(zip(self.task_to_decoder.keys(), self.decoders)):
-            outputs[task]=decoder(rep)
+        for (task,decoder) in zip(self.task_to_decoder.keys(), self.decoders):
+            outputs[task] = decoder( trevor_rep_function( rep[task] ) )
         
         return outputs
 
