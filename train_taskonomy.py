@@ -537,6 +537,7 @@ class Trainer:
             if batch_num ==0:
                 end=time.time()
                 epoch_start_time2=time.time()
+            #print("Num data points", num_data_points, "\tBatch num", batch_num)
             if num_data_points==batch_num:
                 break
 
@@ -587,7 +588,7 @@ class Trainer:
             
             batch_num+=1
             current_learning_rate= get_average_learning_rate(self.optimizer)
-            if num_data_points-1 == batch_num:
+            if num_data_points == batch_num:
 
                 to_print = {}
                 to_print['ep']= ('{0}:').format(self.epoch)

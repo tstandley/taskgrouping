@@ -2,16 +2,17 @@
 
 # Change settings here
 data_dir="../taskonomy-small/"
-# data_dir="../taskonomy-sample-model-1/"
-# model_name="xception_taskonomy_new"
-model_name="bugnet_taskonomy"
-tasks_to_train_on="dnkt"
+#data_dir="/home/ar562/taskonomy-sample-model-1/"
+model_name="xception_taskonomy_new"
+#model_name="resnet18_taskonomy"
+#model_name="bugnet_taskonomy"
+tasks_to_train_on="dnkts"
 model_dir="test_run/"
 number_of_workers="1"
 experiment_name="dry_run"
-batch_size="10"
+batch_size="10" # 5 is good for xception with 5 tasks.
 epochs="20"
-partition=1
+partition=0
 
 # Compile command string
 command="python train_taskonomy.py "
