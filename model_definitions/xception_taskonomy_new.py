@@ -342,30 +342,45 @@ class XceptionTaskonomy(nn.Module):
     
 
     def forward(self, input):
-        rep = self.encoder(input)
+
+        rep = {task: self.encoder(im) for task, im in input.items()}
+        outputs={}
 
 
-        if self.tasks is None:
-            return self.decoders[0](rep)
-        
-        rep = self.final_conv(rep)
-        rep = self.final_conv_bn(rep)
+        rep = {task: self.final_conv(im) for task,im in rep.items()}
+        rep = {task: self.final_conv_bn(im) for task,im in rep.items()}
 
-        outputs={'rep':rep}
-        if self.ozan:
-            OzanRepFunction.n=len(self.decoders)
-            rep = ozan_rep_function(rep)
-            for i,(task,decoder) in enumerate(zip(self.task_to_decoder.keys(),self.decoders)):
-                outputs[task]=decoder(rep[i])
-        else:
-            TrevorRepFunction.n=len(self.decoders)
-            rep = trevor_rep_function(rep)
-            for i,(task,decoder) in enumerate(zip(self.task_to_decoder.keys(),self.decoders)):
-                outputs[task]=decoder(rep)
-        
+        # rep = ozan_rep_function(rep)
+        # rep = trevor_rep_function(rep)
+
+        for (task,decoder) in zip(self.task_to_decoder.keys(), self.decoders):
+            outputs[task] = decoder( trevor_rep_function( rep[task] ) )
+
         return outputs
 
+    # def forward(self, input):
+    #     rep = {task: self.encoder(im) for task, im in input.items()}
 
+
+    #     if self.tasks is None:
+    #         return self.decoders[0](rep)
+        
+    #     rep = self.final_conv(rep)
+    #     rep = self.final_conv_bn(rep)
+
+    #     outputs={'rep':rep}
+    #     if self.ozan:
+    #         OzanRepFunction.n=len(self.decoders)
+    #         rep = ozan_rep_function(rep)
+    #         for i,(task,decoder) in enumerate(zip(self.task_to_decoder.keys(),self.decoders)):
+    #             outputs[task]=decoder(rep[i])
+    #     else:
+    #         TrevorRepFunction.n=len(self.decoders)
+    #         rep = trevor_rep_function(rep)
+    #         for i,(task,decoder) in enumerate(zip(self.task_to_decoder.keys(),self.decoders)):
+    #             outputs[task]=decoder(rep)
+        
+    #     return outputs
 
 def xception_taskonomy_new(**kwargs):
     """
