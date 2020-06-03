@@ -1,6 +1,7 @@
 import warnings
 warnings.simplefilter("error")
 import enum
+import os, csv, datetime
 
 import argparse
 import os
@@ -97,6 +98,8 @@ parser.add_argument('-ml', '--model-limit', default=None, type=int,
                     help='Limit the number of training instances from a single 3d building model.')
 parser.add_argument('-par', '--partition', dest='partition', action='store_true',
                     help='N (partition = false) vs C*N (partition = True) where C is number of tasks.')
+parser.add_argument('--metrics_directory', dest='metrics_directory', default='metrics_directory', type=str,
+                    help='Specify the metrics dirctory.')
 
 
 cudnn.benchmark = False
@@ -317,39 +320,6 @@ class color:
    END = '\033[0m'
 
 
-def print_table(table_list, go_back=True):
-    if len(table_list)==0:
-        print()
-        print()
-        return
-    if go_back:
-        print("\033[F",end='')
-        print("\033[K",end='')
-        for i in range(len(table_list)):
-            print("\033[F",end='')
-            print("\033[K",end='')
-
-
-    lens = defaultdict(int)
-    for i in table_list:
-        for ii,to_print in enumerate(i):
-            for title,val in to_print.items():
-                lens[(title,ii)]=max(lens[(title,ii)],max(len(title),len(val)))
-    
-
-    # printed_table_list_header = []
-    for ii,to_print in enumerate(table_list[0]):
-        for title,val in to_print.items():
-
-            print('{0:^{1}}'.format(title,lens[(title,ii)]),end=" ")
-    for i in table_list:
-        print()
-        for ii,to_print in enumerate(i):
-            for title,val in to_print.items():
-                print('{0:^{1}}'.format(val,lens[(title,ii)]),end=" ",flush=True)
-    print()
-
-
 class AverageMeter(object):
     """Computes and stores the average and current value"""
     def __init__(self):
@@ -377,6 +347,7 @@ class AverageMeter(object):
         #except:
         #    self.std=-1
 
+
 class Trainer:
     def __init__(self,train_loader,val_loader,model,optimizer,criteria,args,checkpoint=None):
         self.train_loader=train_loader
@@ -403,10 +374,29 @@ class Trainer:
         
         self.lr0 = get_average_learning_rate(optimizer)
             
-        print_table(self.progress_table,False)
         self.ticks=0
         self.last_tick=0
         self.loss_tracking_window = args.loss_tracking_window_initial
+
+        # Output metrics file
+        csv_entries = ['epoch', 'batch_index', 'number_of_batches', 'learning_rate', 
+                        'starting_learning_rate', 'eta', 'd%', 'ETA', 'ttest', 'Loss',
+                        'val-Loss', 'val-eta']
+        csv_entries += list(self.criteria.keys()) + ['val-'+s for s in self.criteria.keys()]
+
+        os.makedirs(args.metrics_directory, exist_ok=True)
+        output_metrics_filename = self.prefix() + '_' + datetime.datetime.now().strftime("%m-%d-%Y-%H-%M-%S") + ".csv"
+        output_metrics_filename = os.path.join(args.metrics_directory, output_metrics_filename)
+        self.csv_file = open(output_metrics_filename , 'w')
+        self.csv_writer = csv.DictWriter(self.csv_file, fieldnames=csv_entries, delimiter=',', 
+                                            quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        self.csv_writer.writeheader()
+
+        print(f"Metrics written to CSV file: {output_metrics_filename}")
+
+    def __del__(self):
+        if hasattr(self, 'csv_file'):
+            self.csv_file.close()
 
     def get_code_archive(self):
         file_contents={}
@@ -434,10 +424,14 @@ class Trainer:
             self.stats.append((train_stats,val_stats))
             self.checkpoint(loss)
 
+    def prefix(self):
+        params = [self.args.experiment_name, self.args.arch, ('p' if self.args.pretrained != '' else 'np'), self.args.tasks]
+        return '_'.join(params)
+
     def checkpoint(self, loss):
         is_best = loss < self.best_loss
         self.best_loss = min(loss, self.best_loss)
-        save_filename = self.args.experiment_name+'_'+self.args.arch+'_'+('p' if self.args.pretrained != '' else 'np')+'_'+self.args.tasks+'_checkpoint.pth.tar'
+        save_filename = self.prefix()+'_checkpoint.pth.tar'
 
         try:
             to_save = self.model
@@ -533,6 +527,8 @@ class Trainer:
             num_data_points = num_data_points//5
             
         starting_learning_rate=get_average_learning_rate(self.optimizer)
+        csv_entry = {}
+
         while True:
             if batch_num ==0:
                 end=time.time()
@@ -587,25 +583,25 @@ class Trainer:
             
             batch_num+=1
             current_learning_rate= get_average_learning_rate(self.optimizer)
-            if num_data_points-1 == batch_num:
 
-                to_print = {}
-                to_print['ep']= ('{0}:').format(self.epoch)
-                to_print['#/{0}'.format(num_data_points)]= ('{0}').format(batch_num)
-                to_print['lr']= ('{0:0.3g}-{1:0.3g}').format(starting_learning_rate,current_learning_rate)
-                to_print['eta']= ('{0}').format(time.strftime("%H:%M:%S", time.gmtime(int(eta))))
-                
-                to_print['d%']=('{0:0.2g}').format(100*average_meters['data_time'].sum/elapsed_time_for_epoch)
-                for name in display_values:
-                    meter = average_meters[name]
-                    to_print[name]= ('{meter.avg:.4g}').format(meter=meter)
-                if batch_num < num_data_points-1:
-                    to_print['ETA']= ('{0}').format(time.strftime("%H:%M:%S", time.gmtime(int(eta+elapsed_time_for_epoch))))
-                    to_print['ttest']= ('{0:0.3g},{1:0.3g}').format(z_diff,ttest_p)
-                print_table(self.progress_table+[[to_print]])
-                
+            csv_entry = {}
+            csv_entry['epoch'] = ('{0}:').format(self.epoch)
+            # csv_entry['batch_index'] = ('{0}').format(batch_num)
+            # csv_entry['number_of_batches'] = num_data_points
+            csv_entry['learning_rate'] = current_learning_rate
+            csv_entry['starting_learning_rate'] = starting_learning_rate
+            csv_entry['eta'] = ('{0}').format(time.strftime("%H:%M:%S", time.gmtime(int(eta))))
+            csv_entry['d%'] = ('{0:0.2g}').format(100*average_meters['data_time'].sum/elapsed_time_for_epoch)
 
-        
+            for task_name in display_values:
+                meter = average_meters[task_name]
+                csv_entry[task_name]= ('{meter.avg:.4g}').format(meter=meter)
+
+            if batch_num < num_data_points-1:
+                csv_entry['ETA']= ('{0}').format(time.strftime("%H:%M:%S", time.gmtime(int(eta+elapsed_time_for_epoch))))
+                csv_entry['ttest']= ('{0:0.3g},{1:0.3g}').format(z_diff,ttest_p)
+
+
         epoch_time = time.time()-epoch_start_time
         stats={'batches':num_data_points,
             'learning_rate':current_learning_rate,
@@ -617,9 +613,10 @@ class Trainer:
 
         data_time = average_meters['data_time'].sum
 
-        to_print['eta']= ('{0}').format(time.strftime("%H:%M:%S", time.gmtime(int(epoch_time))))
+        csv_entry['eta']= ('{0}').format(time.strftime("%H:%M:%S", time.gmtime(int(epoch_time))))
+        # self.csv_writer.writerow(csv_entry)
         
-        return [to_print], stats
+        return csv_entry, stats
 
 
 
@@ -666,6 +663,7 @@ class Trainer:
         batch_num=0
         num_data_points=len(self.val_loader)
 
+        csv_entry = train_table
         prefetcher = data_prefetcher(self.val_loader)
         if default_device != Device.CPU:
             torch.cuda.empty_cache()
@@ -694,15 +692,11 @@ class Trainer:
                         average_meters[name].update(value)
                 eta = ((time.time()-epoch_start_time2)/(batch_num+.2))*(len(self.val_loader)-batch_num)
 
-                if i == len(self.val_loader) -1:
-                    to_print = {}
-                    to_print['#/{0}'.format(num_data_points)]= ('{0}').format(batch_num)
-                    to_print['eta']= ('{0}').format(time.strftime("%H:%M:%S", time.gmtime(int(eta))))
-                    for name in self.criteria.keys():
-                        meter = average_meters[name]
-                        to_print[name]= ('{meter.avg:.4g}').format(meter=meter)
-                    progress=train_table+[to_print]
-                    print_table(self.progress_table+[progress])
+                # csv_entry['#/{0}'.format(num_data_points)]= ('{0}').format(batch_num)
+                csv_entry['val-eta']= ('{0}').format(time.strftime("%H:%M:%S", time.gmtime(int(eta))))
+                for name in self.criteria.keys():
+                    meter = average_meters[name]
+                    csv_entry['val-'+name]= ('{meter.avg:.4g}').format(meter=meter)
 
         epoch_time = time.time()-epoch_start_time
 
@@ -714,10 +708,14 @@ class Trainer:
             meter = average_meters[name]
             stats[name]=meter.avg
         ultimate_loss = stats['Loss']
-        to_print['eta']= ('{0}').format(time.strftime("%H:%M:%S", time.gmtime(int(epoch_time))))
+        csv_entry['val-eta']= ('{0}').format(time.strftime("%H:%M:%S", time.gmtime(int(epoch_time))))
+        
+        self.csv_writer.writerow(csv_entry)
+        self.csv_file.flush()
+
         if default_device != Device.CPU:
             torch.cuda.empty_cache()
-        return float(ultimate_loss), progress , stats
+        return float(ultimate_loss), csv_entry , stats
 
     def adjust_learning_rate(self):
         self.lr = self.lr0 * (0.50 ** (self.ticks))
