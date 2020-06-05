@@ -44,6 +44,11 @@ model_names = sorted(name for name in models.__dict__
 parser = argparse.ArgumentParser(description='PyTorch Taskonomy Training')
 parser.add_argument('--data_dir', '-d', dest='data_dir',required=True,
                     help='path to training set')
+parser.add_argument('-tm', '--train-models', dest="train_models", default=None, required=True,
+                    help='Path to training models txt file')
+parser.add_argument('-vm', '--val-models', dest="val_models", default=None, required=True,
+                    help='Path to validation models txt file')
+
 parser.add_argument('--arch', '-a', metavar='ARCH',required=True,
                     choices=model_names,
                     help='model architecture: ' +
@@ -98,7 +103,6 @@ parser.add_argument('-ml', '--model-limit', default=None, type=int,
 parser.add_argument('-par', '--partition', dest='partition', action='store_true',
                     help='N (partition = false) vs C*N (partition = True) where C is number of tasks.')
 
-
 cudnn.benchmark = False
 
 
@@ -137,7 +141,7 @@ def main(args):
     train_dataset = TaskonomyLoader(
         args.data_dir,
         label_set=taskonomy_tasks,
-        model_whitelist='train_models.txt',
+        model_whitelist=args.train_models,
         model_limit=args.model_limit,
         output_size = (args.image_size,args.image_size),
         augment=True, 
@@ -244,7 +248,7 @@ def get_eval_loader(datadir, label_set, args, model_limit=1000):
 
     val_dataset = TaskonomyLoader(datadir,
                                   label_set=label_set,
-                                  model_whitelist='val_models.txt',
+                                  model_whitelist=args.val_models,
                                   model_limit=model_limit,
                                   output_size = (args.image_size,args.image_size),
                                   augment=False,
