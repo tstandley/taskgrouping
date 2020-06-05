@@ -112,9 +112,15 @@ cudnn.benchmark = False
 class Device(enum.Enum):
     CPU = torch.device("cpu")
     CUDA = torch.device("cuda:0")
-    PARALLEL_CUDA = None  # TODO: Blocking parallelism for now...
+    PARALLEL_CUDA = torch.device("cuda:0")
 
-default_device = Device.CPU if not torch.cuda.is_available() else Device.CUDA
+default_device = None
+if not torch.cuda.is_available():
+    default_device = Device.CPU
+elif torch.cuda.device_count() == 1:
+    default_device = Device.CUDA
+elif torch.cuda.device_count() > 1:
+    default_device = Device.PARALLEL_CUDA
 
 if 'CUDA_VISIBLE_DEVICES' in os.environ:
         print('cuda gpus:',os.environ['CUDA_VISIBLE_DEVICES'])
@@ -202,8 +208,8 @@ def main(args):
         model[1].encoder.load_state_dict(torch.load(args.pretrained))
     
 
-    # if torch.cuda.device_count() >1:
-    #     model = torch.nn.DataParallel(model).cuda()
+    if default_device == Device.PARALLEL_CUDA:
+        model = torch.nn.DataParallel(model).cuda()
 
     print('Virtual batch size =', args.batch_size*args.virtual_batch_multiplier)
 
