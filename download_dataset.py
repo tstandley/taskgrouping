@@ -15,8 +15,9 @@ acr_to_task = { "d": "depth_zbuffer",
                 "t": "edge_texture", 
                 "s": "segment_semantic"}
 
-def run_shell_cmd(cmd):
-    print(cmd)
+def run_shell_cmd(cmd, verbose=False):
+    if verbose:
+        print(cmd)
     rval = os.system(cmd)
     if rval != 0:
         signal = rval & 0xFF
@@ -40,21 +41,27 @@ with open(all_files, "r") as f:
         if name not in names: # to make sure we take the same subset at all times.
             names.append(name)
 
-names.sort()
+names.sort(reverse=True)
 
-models = names[0:12]
+models = names[0:5] # Reached index 30 in ascending order
 print("Downloading models:", models, end="\n\n")
 
 def download_models(name):
     for task in tasks:
         os.makedirs(os.path.join(ROOT,task,name),exist_ok=True)
         url = "http://downloads.cs.stanford.edu/downloads/taskonomy_data/{0}/{1}_{0}.tar".format(task,name)
-        run_shell_cmd("wget " + url + " -q --show-progress")
+        run_shell_cmd("wget " + url + " -N -q --show-progress")
         run_shell_cmd("tar -C {} -xf {}".format(os.path.join(ROOT,task,name), os.path.join("{}_{}.tar".format(name,task))))
-        run_shell_cmd("rm {}".format(os.path.join("{}_{}.tar".format(name,task))))
-        
-        run_shell_cmd("mv {}/*.png {}".format(os.path.join(ROOT,task,name,task), os.path.join(ROOT,task,name)))
+        # run_shell_cmd("mv {}/*.png {}".format(os.path.join(ROOT,task,name,task), os.path.join(ROOT,task,name)))
+        run_shell_cmd("find {}".format(os.path.join(ROOT,task,name,task)) + " -name '*.png' -exec mv -t {}".format(os.path.join(ROOT,task,name) + " {} +"))
         run_shell_cmd("rmdir {}".format(os.path.join(ROOT,task,name,task)))
+        if task == "segment_semantic":
+            cwd = os.getcwd()
+            os.chdir(os.path.join(ROOT,task,name))
+            run_shell_cmd("find . -type f -name '*segmentsemantic.png' | while read FILE ; do newfile=\"$(echo ${FILE} |sed -e 's/segmentsemantic/segment\_semantic/')\" ; mv \"${FILE}\" \"${newfile}\"; done")
+            os.chdir(cwd)    
+        run_shell_cmd("rm {}".format(os.path.join("{}_{}.tar".format(name,task))))
+    print("Done downloading " + name + ".")
 
 
 cpus = multiprocessing.cpu_count()
