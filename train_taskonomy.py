@@ -17,7 +17,7 @@ from taskonomy_loader import TaskonomyLoader
 
 from apex.parallel import DistributedDataParallel as DDP
 from apex.fp16_utils import *
-
+from apex import amp, optimizers
 import copy
 import numpy as np
 import signal
@@ -47,12 +47,14 @@ parser.add_argument('-b', '--batch-size', default=64, type=int,
                     help='mini-batch size (default: 64)')
 parser.add_argument('--tasks', '-ts', default='sdnkt', dest='tasks',
                     help='which tasks to train on')
-parser.add_argument('--model_dir', default='models', dest='model_dir',
+parser.add_argument('--model_dir', default='saved_models', dest='model_dir',
                     help='where to save models')
 parser.add_argument('--image-size', default=256, type=int,
                     help='size of image side (images are square)')
 parser.add_argument('-j', '--workers', default=4, type=int,
                     help='number of data loading workers (default: 4)')
+parser.add_argument('-pf', '--print_frequency', default=1, type=int,
+                    help='how often to print output')
 parser.add_argument('--epochs', default=100, type=int,
                     help='maximum number of epochs to run')
 parser.add_argument('-mlr', '--minimum_learning_rate', default=3e-5, type=float,
@@ -66,7 +68,7 @@ parser.add_argument('-mltw', '--maximum_loss_tracking_window', default=2000000, 
                     help='maximum loss tracking window (default: 2000000)')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
-parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
+parser.add_argument('--weight-decay', '-wd','--wd', default=1e-4, type=float,
                     metavar='W', help='weight decay (default: 1e-4)')
 parser.add_argument('--resume','--restart', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
@@ -79,7 +81,7 @@ parser.add_argument('-v', '--validate', dest='validate', action='store_true',
 parser.add_argument('-t', '--test', dest='test', action='store_true',
                     help='evaluate model on test set')
 
-parser.add_argument('-r', '--no_rotate_loss', dest='no_rotate_loss', action='store_true',
+parser.add_argument('-r', '--rotate_loss', dest='rotate_loss', action='store_true',
                     help='should loss rotation occur')
 parser.add_argument('--pretrained', dest='pretrained', default='',
                     help='use pre-trained model')
@@ -87,9 +89,16 @@ parser.add_argument('-vb', '--virtual-batch-multiplier', default=1, type=int,
                     metavar='N', help='number of forward/backward passes per parameter update')
 parser.add_argument('--fp16', action='store_true',
                     help='Run model fp16 mode.')
+parser.add_argument('-sbn', '--sync_batch_norm', action='store_true',
+                    help='sync batch norm parameters accross gpus.')
+parser.add_argument('-hs', '--half_sized_output', action='store_true',
+                    help='output 128x128 rather than 256x256.')
+parser.add_argument('-na','--no_augment', action='store_true',
+                    help='Run model fp16 mode.')
 parser.add_argument('-ml', '--model-limit', default=None, type=int,
                     help='Limit the number of training instances from a single 3d building model.')
-
+parser.add_argument('-tw', '--task-weights', default=None, type=str,
+                    help='a comma separated list of numbers one for each task to multiply the loss by.')
 
 cudnn.benchmark = False
 
@@ -115,18 +124,24 @@ def main(args):
     criteria = criteria2
 
     print('data_dir =',args.data_dir, len(args.data_dir))
+    
+    if args.no_augment:
+        augment = False
+    else:
+        augment = True
     train_dataset = TaskonomyLoader(
         args.data_dir,
         label_set=taskonomy_tasks,
         model_whitelist='train_models.txt',
         model_limit=args.model_limit,
         output_size = (args.image_size,args.image_size),
-        augment=True)
+        half_sized_output=args.half_sized_output,
+        augment=augment)
 
     print('Found',len(train_dataset),'training instances.')
 
     print("=> creating model '{}'".format(args.arch))
-    model = models.__dict__[args.arch](tasks=losses.keys())
+    model = models.__dict__[args.arch](tasks=losses.keys(),half_sized_output=args.half_sized_output)
 
     def get_n_params(model):
         pp=0
@@ -142,7 +157,7 @@ def main(args):
     print("Model has", get_n_params(model), "parameters")
     try:
         print("Encoder has", get_n_params(model.encoder), "parameters")
-        #flops, params=get_model_complexity_info(model.encoder,(256,256), as_strings=False, print_per_layer_stat=False)
+        #flops, params=get_model_complexity_info(model.encoder,(3,256,256), as_strings=False, print_per_layer_stat=False)
         #print("Encoder has", flops, "Flops and", params, "parameters,")
     except:
         print("Each encoder has", get_n_params(model.encoders[0]), "parameters")
@@ -150,6 +165,25 @@ def main(args):
         print("Decoder has", get_n_params(decoder), "parameters")
 
     model = model.cuda()
+
+
+    optimizer = torch.optim.SGD(model.parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+    
+    #tested with adamW. Poor results observed
+    #optimizer = adamW.AdamW(model.parameters(),lr= args.lr,weight_decay=args.weight_decay,eps=1e-3)
+
+
+    # Initialize Amp.  Amp accepts either values or strings for the optional override arguments,
+    # for convenient interoperation with argparse.
+    if args.fp16:
+        model, optimizer = amp.initialize(model, optimizer,
+                                        opt_level='O1',
+                                        loss_scale="dynamic",
+                                        verbosity=0
+                                        )
+        print('Got fp16!')
+
+    #args.lr = args.lr*float(args.batch_size*args.virtual_batch_multiplier)/256.
 
     # optionally resume from a checkpoint
     checkpoint=None
@@ -164,38 +198,26 @@ def main(args):
             print("=> no checkpoint found at '{}'".format(args.resume))
 
 
-    #o_model = model
-    if args.fp16:
-        print('making network fp16')
-        model = network_to_half(model)
+
 
 
     if args.pretrained != '':
         print('loading pretrained weights for '+args.arch+' ('+args.pretrained+')')
-        model[1].encoder.load_state_dict(torch.load(args.pretrained))
+        model.encoder.load_state_dict(torch.load(args.pretrained))
     
 
     if torch.cuda.device_count() >1:
         model = torch.nn.DataParallel(model).cuda()
+        if args.sync_batch_norm:
+            from sync_batchnorm import patch_replication_callback
+            patch_replication_callback(model)
 
     print('Virtual batch size =', args.batch_size*args.virtual_batch_multiplier)
-
-    optimizer = torch.optim.SGD(model.parameters(), args.lr,momentum=args.momentum,weight_decay=args.weight_decay)
-    
-    #tested with adamW. Poor results observed
-    #optimizer = adamW.AdamW(model.parameters(),lr= args.lr,weight_decay=args.weight_decay,eps=1e-3)
-    
-    if args.fp16:
-        sys.stdout = open(os.devnull, "w") # capture junky output
-        optimizer = FP16_Optimizer(optimizer,
-                                   dynamic_loss_scale=True)
-        sys.stdout = sys.__stdout__ # stop capturing junky output
-
     
     if args.resume:
         if os.path.isfile(args.resume):
             optimizer.load_state_dict(checkpoint['optimizer'])
-    
+
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=True,
         num_workers=args.workers, pin_memory=True, sampler=None)
@@ -208,6 +230,7 @@ def main(args):
         trainer.validate([{}])
         print()
         return
+    
 
     if args.test:
         trainer.progress_table=[]
@@ -227,6 +250,7 @@ def get_eval_loader(datadir, label_set, args,model_limit=1000):
                                   model_whitelist='val_models.txt',
                                   model_limit=model_limit,
                                   output_size = (args.image_size,args.image_size),
+                                  half_sized_output=args.half_sized_output,
                                   augment=False)
     print('Found',len(val_dataset),'validation instances.')
     
@@ -348,10 +372,7 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
         self.lst.append(self.val)
         self.std=np.std(self.lst)
-        #try:
-        #    self.std = ((self.sumsq-self.count*(self.avg**2))/(self.count-1))**.5
-        #except:
-        #    self.std=-1
+
 
 class Trainer:
     def __init__(self,train_loader,val_loader,model,optimizer,criteria,args,checkpoint=None):
@@ -419,10 +440,6 @@ class Trainer:
             to_save = self.model
             if torch.cuda.device_count() >1:
                 to_save=to_save.module
-            if self.args.fp16:
-                to_save=to_save[1]
-                to_save = to_save.float()
-                #copy_in_params(model,param_copy)
             gpus='all'
             if 'CUDA_VISIBLE_DEVICES' in os.environ:
                 gpus=os.environ['CUDA_VISIBLE_DEVICES']
@@ -442,11 +459,8 @@ class Trainer:
 
             if is_best:
                 self.save_checkpoint(None, True,self.args.model_dir, save_filename)
-            if self.args.fp16:
-                to_save = network_to_half(to_save)
         except:
-            print('save checkpoint failed...')              
-
+            print('save checkpoint failed...')
 
 
 
@@ -513,7 +527,7 @@ class Trainer:
                 epoch_start_time2=time.time()
             if num_data_points==batch_num:
                 break
-
+            self.percent = batch_num/num_data_points
             loss_dict=None
             loss=0
 
@@ -548,10 +562,7 @@ class Trainer:
                 except:
                     average_meters[name].update(value)
 
-            # time since start of program:
-            if batch_num==0 and self.epoch==0:
-                print('Time since program start:', time.time() - program_start_time, 'seconds.')
-                print()
+
 
             elapsed_time_for_epoch = (time.time()-epoch_start_time2)
             eta = (elapsed_time_for_epoch/(batch_num+.2))*(num_data_points-batch_num)
@@ -576,7 +587,8 @@ class Trainer:
                 if batch_num < num_data_points-1:
                     to_print['ETA']= ('{0}').format(time.strftime("%H:%M:%S", time.gmtime(int(eta+elapsed_time_for_epoch))))
                     to_print['ttest']= ('{0:0.3g},{1:0.3g}').format(z_diff,ttest_p)
-                print_table(self.progress_table+[[to_print]])
+                if batch_num % self.args.print_frequency == 0:
+                    print_table(self.progress_table+[[to_print]])
                 
 
         
@@ -601,8 +613,7 @@ class Trainer:
 
         loss_dict = {}
         
-        if self.args.fp16:
-            input = input.half()
+        input = input.float()
         output = self.model(input)
         first_loss=None
         for c_name,criterion_fun in self.criteria.items():
@@ -613,24 +624,18 @@ class Trainer:
         loss = loss / self.args.virtual_batch_multiplier
             
         if self.args.fp16:
-            self.optimizer.backward(loss)
+            with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                scaled_loss.backward()
         else:
             loss.backward()
 
-        return loss_dict,loss
+        return loss_dict, loss
 
     
     def update(self):
-
-        sys.stdout = open(os.devnull, "w")
         self.optimizer.step()
-        sys.stdout = sys.__stdout__
-        if self.args.fp16:
-            torch.cuda.synchronize()
-        sys.stdout = open(os.devnull, "w")
         self.optimizer.zero_grad()
-        sys.stdout = sys.__stdout__
- 
+
 
     def validate(self, train_table):
         average_meters = defaultdict(AverageMeter)
@@ -673,7 +678,8 @@ class Trainer:
                     meter = average_meters[name]
                     to_print[name]= ('{meter.avg:.4g}').format(meter=meter)
                 progress=train_table+[to_print]
-                print_table(self.progress_table+[progress])
+                if batch_num % self.args.print_frequency == 0:
+                    print_table(self.progress_table+[progress])
 
         epoch_time = time.time()-epoch_start_time
 
@@ -696,8 +702,6 @@ class Trainer:
     def set_learning_rate(self,lr):
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = lr
-
-
 
 if __name__ == '__main__':
     #mp.set_start_method('forkserver')

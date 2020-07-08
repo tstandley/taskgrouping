@@ -182,12 +182,12 @@ def interpolate(inp,size):
 
 
 class Decoder(nn.Module):
-    def __init__(self, output_channels=32,num_classes=None):
+    def __init__(self, output_channels=32,num_classes=None,half_sized_output=False):
         super(Decoder, self).__init__()
         
         self.output_channels = output_channels
         self.num_classes = num_classes
-
+        self.half_sized_output=half_sized_output
         self.relu = nn.ReLU(inplace=True)
         if num_classes is not None:
             self.block12=Block(728,1024,2,2,start_with_relu=True,grow_first=False)
@@ -213,9 +213,15 @@ class Decoder(nn.Module):
             self.bn_upconv3 = nn.BatchNorm2d(96)
             self.conv_decode3 = nn.Conv2d(96, 96, 3,padding=1)
             self.bn_decode3 = nn.BatchNorm2d(96)
-            self.upconv4 = nn.ConvTranspose2d(96,64,2,2)
-            self.bn_upconv4 = nn.BatchNorm2d(64)
-            self.conv_decode4 = nn.Conv2d(64, output_channels, 3,padding=1)
+            if half_sized_output:
+                self.upconv4 = nn.Identity()
+                self.bn_upconv4 = nn.Identity()
+                self.conv_decode4 = nn.Conv2d(96, output_channels, 3,padding=1)
+            else:
+                self.upconv4 = nn.ConvTranspose2d(96,64,2,2)
+                self.bn_upconv4 = nn.BatchNorm2d(64)
+                self.conv_decode4 = nn.Conv2d(64, output_channels, 3,padding=1)
+            
 
 
 
@@ -240,9 +246,10 @@ class Decoder(nn.Module):
             x = self.conv_decode3(x)
             x = self.bn_decode3(x)
             x = self.relu(x)
-            x = self.upconv4(x)
-            x = self.bn_upconv4(x)
-            x = self.relu(x)
+            if not self.half_sized_output:
+                x = self.upconv4(x)
+                x = self.bn_upconv4(x)
+                x = self.relu(x)
             x = self.conv_decode4(x)
 
         else:
@@ -269,7 +276,7 @@ class XceptionTaskonomy(nn.Module):
     Xception optimized for the ImageNet dataset, as specified in
     https://arxiv.org/pdf/1610.02357.pdf
     """
-    def __init__(self,size=1, tasks=None,num_classes=None, ozan=False):
+    def __init__(self,size=1, tasks=None,num_classes=None, ozan=False,half_sized_output=False):
         """ Constructor
         Args:
             num_classes: number of classes
@@ -280,7 +287,7 @@ class XceptionTaskonomy(nn.Module):
         if size == 1:
             sizes=[32,64,128,256,728,728,728,728,728,728,728,728,728]
         elif size==.2:
-            sizes=[32,64,128,256,728,728,728,728,728,728,728,728,728]
+            sizes=[16,32,64,256,320,320,320,320,320,320,320,320,320]
         elif size==.3:
             sizes=[32,64,128,256,728,728,728,728,728,728,728,728,728]
         elif size==.4:
@@ -323,7 +330,13 @@ class XceptionTaskonomy(nn.Module):
                     output_channels = 1
                 if task == 'edge_texture':
                     output_channels = 1
-                decoder=Decoder(output_channels)
+                if task == 'reshading':
+                    output_channels = 1
+                if task == 'rgb':
+                    output_channels = 3
+                if task == 'principal_curvature':
+                    output_channels = 2
+                decoder=Decoder(output_channels,half_sized_output=half_sized_output)
                 self.task_to_decoder[task]=decoder
         else:
             self.task_to_decoder['classification']=Decoder(output_channels=0,num_classes=1000)

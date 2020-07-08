@@ -10,6 +10,8 @@ el=0
 rl=0
 kl=0
 tl=0
+al=0
+cl=0
 popular_offsets=collections.defaultdict(int)
 batch_number=0
 
@@ -94,8 +96,9 @@ def depth_loss_base(output,target,mask):
     out = out.mean(dim=(1,2,3))
     return out
 
-def edge_loss(output,target,mask):
+def edge_loss_simple(output,target,mask):
     global el
+    
     out = torch.nn.functional.l1_loss(output,target,reduction='none')
     out *=mask
     el = out.mean()
@@ -117,6 +120,26 @@ def edge2d_loss(output,target,mask):
     global tl
     tl = torch.nn.functional.l1_loss(output,target)
     return tl
+
+def auto_loss(output,target,mask):
+    global al
+    al = torch.nn.functional.l1_loss(output,target)
+    return al
+
+def pc_loss(output,target,mask):
+    global cl
+    out = torch.nn.functional.l1_loss(output,target,reduction='none')
+    out *=mask
+    cl = out.mean()
+    return cl
+
+def edge_loss(output,target,mask):
+    global el
+    out = torch.nn.functional.l1_loss(output,target,reduction='none')
+    out *=mask
+    el = out.mean()
+    return el
+
 
 def get_taskonomy_loss(losses):
     def taskonomy_loss(output,target):
@@ -146,22 +169,25 @@ def get_losses_and_tasks(args):
     losses = {}
     criteria = {}
     taskonomy_tasks = []
+        
     if 's' in task_str:
         losses['segment_semantic'] = segment_semantic_loss
         criteria['ss_l']=lambda x,y : sl
         taskonomy_tasks.append('segment_semantic')
     if 'd' in task_str:
-        if args.no_rotate_loss:
+        if not args.rotate_loss:
             losses['depth_zbuffer'] = depth_loss_simple
         else:            
+            print('got rotate loss')
             losses['depth_zbuffer'] = depth_loss
         criteria['depth_l']=lambda x,y : dl
-    if 'd' in task_str or 'n' in task_str:
         taskonomy_tasks.append('depth_zbuffer')
+
     if 'n' in task_str:
-        if args.no_rotate_loss:
+        if not args.rotate_loss:
             losses['normal']=normal_loss_simple
         else:
+            print('got rotate loss')
             losses['normal']=normal_loss
         criteria['norm_l']=lambda x,y : nl
         #criteria['norm_l2']=lambda x,y : nl2
@@ -170,22 +196,47 @@ def get_losses_and_tasks(args):
         losses['normal2']=normal2_loss
         criteria['norm2']=lambda x,y : nl3
         taskonomy_tasks.append('normal2')
+    if 'k' in task_str:
+        losses['keypoints2d']=keypoints2d_loss
+        criteria['key_l']=lambda x,y : kl
+        taskonomy_tasks.append('keypoints2d')
     if 'e' in task_str:
-        losses['edge_occlusion']=edge_loss
+        if not args.rotate_loss:
+            losses['edge_occlusion'] = edge_loss_simple
+        else:            
+            print('got rotate loss')
+            losses['edge_occlusion'] = edge_loss
+        #losses['edge_occlusion']=edge_loss
         criteria['edge_l']=lambda x,y : el
         taskonomy_tasks.append('edge_occlusion')
     if 'r' in task_str:
         losses['reshading']=reshade_loss
         criteria['shade_l']=lambda x,y : rl
         taskonomy_tasks.append('reshading')
-    if 'k' in task_str:
-        losses['keypoints2d']=keypoints2d_loss
-        criteria['key_l']=lambda x,y : kl
-        taskonomy_tasks.append('keypoints2d')
     if 't' in task_str:
         losses['edge_texture']=edge2d_loss
         criteria['edge2d_l']=lambda x,y : tl
         taskonomy_tasks.append('edge_texture')
+    if 'a' in task_str:
+        losses['rgb']=auto_loss
+        criteria['rgb_l']=lambda x,y : al
+        taskonomy_tasks.append('rgb')
+    if 'c' in task_str:
+        losses['principal_curvature']=pc_loss
+        criteria['pc_l']=lambda x,y : cl
+        taskonomy_tasks.append('principal_curvature')
+
+    #"nacre"
+
+    if args.task_weights:
+        weights=[float(x) for x in args.task_weights.split(',')]
+        losses2={}
+        criteria2={}
+
+
+        for l,w,c in zip(losses.items(),weights,criteria.items()):
+            losses[l[0]]=lambda x,y,z,l=l[1],w=w:l(x,y,z)*w
+            criteria[c[0]]=lambda x,y,c=c[1],w=w:c(x,y)*w
 
     taskonomy_loss = get_taskonomy_loss(losses)
     return taskonomy_loss,losses, criteria, taskonomy_tasks
