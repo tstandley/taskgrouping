@@ -1,6 +1,9 @@
 # Code for Which Tasks to Train Together in Multi-Task Learning
+
 Trevor Standley, Amir R. Zamir, Dawn Chen, Leonidas Guibas, Jitendra Malik, Silvio Savarese
+
 ICML 2020
+
 http://taskgrouping.stanford.edu/
 
 1. Install pytorch,torchvision
