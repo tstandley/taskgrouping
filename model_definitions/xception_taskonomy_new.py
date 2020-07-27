@@ -1,20 +1,4 @@
 """ 
-Creates an Xception Model as defined in:
-
-Francois Chollet
-Xception: Deep Learning with Depthwise Separable Convolutions
-https://arxiv.org/pdf/1610.02357.pdf
-
-This weights ported from the Keras implementation. Achieves the following performance on the validation set:
-
-Loss:0.9173 Prec@1:78.892 Prec@5:94.292
-
-REMEMBER to set your image size to 3x299x299 for both test and validation
-
-normalize = transforms.Normalize(mean=[0.5, 0.5, 0.5],
-                                  std=[0.5, 0.5, 0.5])
-
-The resize parameter of the validation transform should be 333, and make sure to center crop at 299x299
 """
 import math
 import torch.nn as nn
@@ -182,7 +166,7 @@ def interpolate(inp,size):
 
 
 class Decoder(nn.Module):
-    def __init__(self, output_channels=32,num_classes=None,half_sized_output=False):
+    def __init__(self, output_channels=32,num_classes=None,half_sized_output=False,small_decoder=True):
         super(Decoder, self).__init__()
         
         self.output_channels = output_channels
@@ -201,26 +185,48 @@ class Decoder(nn.Module):
 
             self.fc = nn.Linear(2048, num_classes)
         else:
-            self.upconv1 = nn.ConvTranspose2d(512,256,2,2)
-            self.bn_upconv1 = nn.BatchNorm2d(256)
-            self.conv_decode1 = nn.Conv2d(256, 256, 3,padding=1)
-            self.bn_decode1 = nn.BatchNorm2d(256)
-            self.upconv2 = nn.ConvTranspose2d(256,128,2,2)
-            self.bn_upconv2 = nn.BatchNorm2d(128)
-            self.conv_decode2 = nn.Conv2d(128, 128, 3,padding=1)
-            self.bn_decode2 = nn.BatchNorm2d(128)
-            self.upconv3 = nn.ConvTranspose2d(128,96,2,2)
-            self.bn_upconv3 = nn.BatchNorm2d(96)
-            self.conv_decode3 = nn.Conv2d(96, 96, 3,padding=1)
-            self.bn_decode3 = nn.BatchNorm2d(96)
-            if half_sized_output:
-                self.upconv4 = nn.Identity()
-                self.bn_upconv4 = nn.Identity()
-                self.conv_decode4 = nn.Conv2d(96, output_channels, 3,padding=1)
+            if small_decoder:
+                self.upconv1 = nn.ConvTranspose2d(512,128,2,2)
+                self.bn_upconv1 = nn.BatchNorm2d(128)
+                self.conv_decode1 = nn.Conv2d(128, 128, 3,padding=1)
+                self.bn_decode1 = nn.BatchNorm2d(128)
+                self.upconv2 = nn.ConvTranspose2d(128,64,2,2)
+                self.bn_upconv2 = nn.BatchNorm2d(64)
+                self.conv_decode2 = nn.Conv2d(64, 64, 3,padding=1)
+                self.bn_decode2 = nn.BatchNorm2d(64)
+                self.upconv3 = nn.ConvTranspose2d(64,48,2,2)
+                self.bn_upconv3 = nn.BatchNorm2d(48)
+                self.conv_decode3 = nn.Conv2d(48, 48, 3,padding=1)
+                self.bn_decode3 = nn.BatchNorm2d(48)
+                if half_sized_output:
+                    self.upconv4 = nn.Identity()
+                    self.bn_upconv4 = nn.Identity()
+                    self.conv_decode4 = nn.Conv2d(48, output_channels, 3,padding=1)
+                else:
+                    self.upconv4 = nn.ConvTranspose2d(48,32,2,2)
+                    self.bn_upconv4 = nn.BatchNorm2d(32)
+                    self.conv_decode4 = nn.Conv2d(32, output_channels, 3,padding=1)
             else:
-                self.upconv4 = nn.ConvTranspose2d(96,64,2,2)
-                self.bn_upconv4 = nn.BatchNorm2d(64)
-                self.conv_decode4 = nn.Conv2d(64, output_channels, 3,padding=1)
+                self.upconv1 = nn.ConvTranspose2d(512,256,2,2)
+                self.bn_upconv1 = nn.BatchNorm2d(256)
+                self.conv_decode1 = nn.Conv2d(256, 256, 3,padding=1)
+                self.bn_decode1 = nn.BatchNorm2d(256)
+                self.upconv2 = nn.ConvTranspose2d(256,128,2,2)
+                self.bn_upconv2 = nn.BatchNorm2d(128)
+                self.conv_decode2 = nn.Conv2d(128, 128, 3,padding=1)
+                self.bn_decode2 = nn.BatchNorm2d(128)
+                self.upconv3 = nn.ConvTranspose2d(128,96,2,2)
+                self.bn_upconv3 = nn.BatchNorm2d(96)
+                self.conv_decode3 = nn.Conv2d(96, 96, 3,padding=1)
+                self.bn_decode3 = nn.BatchNorm2d(96)
+                if half_sized_output:
+                    self.upconv4 = nn.Identity()
+                    self.bn_upconv4 = nn.Identity()
+                    self.conv_decode4 = nn.Conv2d(96, output_channels, 3,padding=1)
+                else:
+                    self.upconv4 = nn.ConvTranspose2d(96,64,2,2)
+                    self.bn_upconv4 = nn.BatchNorm2d(64)
+                    self.conv_decode4 = nn.Conv2d(64, output_channels, 3,padding=1)
             
 
 
@@ -324,8 +330,6 @@ class XceptionTaskonomy(nn.Module):
                     output_channels = 3
                 if task == 'edge_occlusion':
                     output_channels = 1
-                if task == 'reshading':
-                    output_channels = 3
                 if task == 'keypoints2d':
                     output_channels = 1
                 if task == 'edge_texture':

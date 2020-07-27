@@ -215,7 +215,7 @@ def main(args):
     print('Virtual batch size =', args.batch_size*args.virtual_batch_multiplier)
     
     if args.resume:
-        if os.path.isfile(args.resume):
+        if os.path.isfile(args.resume) and 'optimizer' in checkpoint:
             optimizer.load_state_dict(checkpoint['optimizer'])
 
     train_loader = torch.utils.data.DataLoader(
@@ -386,11 +386,26 @@ class Trainer:
         self.fp16=args.fp16
         self.code_archive=self.get_code_archive()
         if checkpoint:
-            self.progress_table = checkpoint['progress_table']
-            self.start_epoch = checkpoint['epoch']+1
-            self.best_loss = checkpoint['best_loss']
-            self.stats = checkpoint['stats']
-            self.loss_history = checkpoint['loss_history']
+            if 'progress_table' in checkpoint:
+                self.progress_table = checkpoint['progress_table']
+            else:
+                self.progress_table=[]    
+            if 'epoch' in checkpoint:
+                self.start_epoch = checkpoint['epoch']+1
+            else:
+                self.start_epoch = 0
+            if 'best_loss' in checkpoint:
+                self.best_loss = checkpoint['best_loss']
+            else:
+                self.best_loss = 9e9
+            if 'stats' in checkpoint:
+                self.stats = checkpoint['stats']
+            else:
+                self.stats=[]
+            if 'loss_history' in checkpoint:
+                self.loss_history = checkpoint['loss_history']
+            else:
+                self.loss_history=[]
         else:
             self.progress_table=[]
             self.best_loss = 9e9
