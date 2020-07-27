@@ -38,4 +38,11 @@ Pretrained models from setting 2:
 
 https://drive.google.com/drive/folders/1XQVpv6Yyz5CRGNxetO0LTXuTvMS_w5R5?usp=sharing
 
+to test these models on the test set:
+
+```
+python3 train_taskonomy.py -d=/taskonomy_data/ -a=xception_taskonomy_new -j 4 -b 256 -lr=.1 --fp16 -sbn --tasks=[task letters] --resume=setting2_models/xception_taskonomy_new_[task letters].pth.tar -t -r
+```
+
 (contact for models from other settings)
+
