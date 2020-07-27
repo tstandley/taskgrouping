@@ -18,9 +18,13 @@ conda install -c conda-forge libjpeg-turbo
 ```
 4. Get training data
 https://github.com/StanfordVL/taskonomy/tree/master/data
-The data must be formatted in 
+The data must be aranged in 
+
 ```
-  root/task or rgb/building/point_x_view_x.png
+inputs:   
+  root/rgb/building/point_x_view_x.png
+labels:
+  labels: root/task/building/point_x_view_x.png
 ```
 order.
 
