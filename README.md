@@ -32,3 +32,10 @@ usage example
 ```
 python3 train_taskonomy.py -d=/taskonomy_data/ -a=xception_taskonomy_new -j 4 -b 96 -lr=.1 --fp16 -sbn --tasks=sdnerac -r
 ```
+
+Pretrained models from setting 2:
+
+
+https://drive.google.com/drive/folders/1XQVpv6Yyz5CRGNxetO0LTXuTvMS_w5R5?usp=sharing
+
+(contact for models from other settings)
