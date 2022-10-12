@@ -24,7 +24,7 @@ The data must be aranged in
 inputs:   
   root/rgb/building/point_x_view_x.png
 labels:
-  root/task/building/point_x_view_x.png
+  root/$task$/$building$/point_x_view_x.png
 ```
 order.
 
